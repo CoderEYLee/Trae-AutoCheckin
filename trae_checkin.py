@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Trae AutoCheckin · Trae 每日自动签到（抗 9074 限流版）
+TRAE AutoCheckin · TRAE 每日自动签到（抗 9074 限流版）
 ────────────────────────────────────────────────────────────
-一个零依赖的 Trae 积分签到脚本：缓存 token、自动续期、多账号轮签、
-当日去重、限流熔断，签到结果推送到企业微信 / PushPlus / Telegram。
+一个零依赖的 TRAE 积分签到脚本：缓存 token、自动续期、多账号轮签、
+当日去重、限流熔断，签到结果推送到企业微信 / PushPlus / 飞书 / Telegram。
 
 ✨ 特性
   • 零依赖     仅用 Python 标准库，无需 pip 安装（解密桌面端凭据时才需 cryptography）
   • Token 缓存 复用未过期的 accessToken，失效才用 refreshToken 续期
   • 链式续期   refreshToken 会轮换，脚本自动回写最新值，长期不失效
   • 多账号     TRAE_ACCOUNTS(JSON) / TRAE_REFRESH_TOKEN[_N] / 桌面端凭据 三种配法均可
-  • 自动解密   直接读 Trae 客户端 storage.json，免抓包免手抄 token
+  • 自动解密   直接读 TRAE 客户端 storage.json，免抓包免手抄 token
   • 稳定设备   优先使用客户端真实注册的设备号（storage.json 键名里的 Aha 号），跨运行不漂移
   • 一轮全签   默认每轮把所有未签账号全签掉，9074 时在真实设备号之间切换
   • 抗 9074    请求体带 req_source + 设备头，且 x-device-id 必须是客户端真实注册过的号
   • 失败让路   本轮没签成的交给下一轮 cron 补签，不硬轰、不拖其它账号下水
   • 积分余额   签到后用 entitlement 接口查真实余额，推送里直接给数字
-  • 多路推送   企业微信群机器人 / PushPlus / Telegram，多账号结果一目了然
+  • 多路推送   企业微信群机器人 / PushPlus / 飞书自定义机器人 / Telegram，多账号结果一目了然
 
 🛡 抗 9074 限流要点
   • 强制直连，不走系统代理 / Clash —— 多账号共用一个出口 IP 最容易触发限流
@@ -64,6 +64,7 @@ Trae AutoCheckin · Trae 每日自动签到（抗 9074 限流版）
   TRAE_ACCOUNT_DIR         账号 JSON 所在目录（可选，用于回写轮换后的 refreshToken）
   QYWX_TOKEN               企业微信群机器人 Webhook key（可选，也兼容 WECHAT_WEBHOOK）
   PLUSPLUS_TOKEN           PushPlus token（可选；兼容 PLUSHPLUS_TOKEN / PUSHPLUS_TOKEN）
+  FEISHU_WEBHOOK           飞书自定义机器人 Webhook 完整地址（可选，也兼容 FEISHU_HOOK）
   TG_BOT_TOKEN             Telegram Bot token（可选，由 @BotFather 获取）
   TG_CHAT_ID               Telegram chat id（可选；与 TG_BOT_TOKEN 同时填写才推送）
 
@@ -176,6 +177,7 @@ def _apply_trae_config():
     if isinstance(push, dict):
         put('QYWX_TOKEN', push.get('qywxToken'))
         put('PLUSPLUS_TOKEN', push.get('plusplusToken'))
+        put('FEISHU_WEBHOOK', push.get('feishuWebhook') or push.get('feishuHook'))
 
     # 调度
     sch = cfg.get('schedule') or {}
@@ -246,6 +248,7 @@ PUSHPLUS_URL = 'https://www.pushplus.plus/send'
 # 企业微信 / PushPlus 推送配置（留空则不推送）
 PLUSPLUS_TOKEN = (os.getenv('PLUSPLUS_TOKEN') or os.getenv('PLUSHPLUS_TOKEN') or os.getenv('PUSHPLUS_TOKEN') or '').strip()
 QYWX_TOKEN = os.getenv('QYWX_TOKEN') or os.getenv('WECHAT_WEBHOOK') or ''
+FEISHU_WEBHOOK = (os.getenv('FEISHU_WEBHOOK') or os.getenv('FEISHU_HOOK') or '').strip()
 TG_BOT_TOKEN = os.getenv('TG_BOT_TOKEN', '').strip()
 TG_CHAT_ID = os.getenv('TG_CHAT_ID', '').strip()
 TG_API_URL = 'https://api.telegram.org/bot%s/sendMessage'
@@ -576,7 +579,7 @@ def log_box(lines, top=''):
 
 def log_title(total):
     log_box(['🕒 启动时间: ' + bj(), '👥 账号数量: %s' % total],
-            '🤖 Trae SOLO 每日签到脚本（多账号）')
+            '🤖 TRAE SOLO 每日签到脚本（多账号）')
 
 
 def log_head(title):
@@ -619,7 +622,7 @@ def ug_headers(token, device_id):
 
 
 # ══════════════════ 设备证明（纯标准库 ECDSA P-256） ══════════════════
-# Trae 新版 ExchangeToken 要求带设备签名，缺了会返回 20405 Device proof required。
+# TRAE 新版 ExchangeToken 要求带设备签名，缺了会返回 20405 Device proof required。
 P256_P = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
 P256_A = P256_P - 3
 P256_N = 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551
@@ -834,7 +837,7 @@ def refresh(refresh_token, keys=None):
 
 
 def _explain_refresh_err(text):
-    """把 Trae 的错误码翻译成人话，方便排错。"""
+    """把 TRAE 的错误码翻译成人话，方便排错。"""
     try:
         err = (json.loads(text).get('ResponseMetadata') or {}).get('Error') or {}
         code = err.get('Code')
@@ -958,7 +961,7 @@ def save_device_ids(ids):
 
 
 def real_device_ids():
-    """扫描本机所有 Trae 客户端 storage.json，返回真实注册过的设备号（去重）。"""
+    """扫描本机所有 TRAE 客户端 storage.json，返回真实注册过的设备号（去重）。"""
     out = []
     paths = []
     env = os.getenv('TRAE_STORAGE_PATH', '').strip()
@@ -1367,6 +1370,34 @@ def notify_pushplus(title, content):
         print('❌ [PushPlus] 推送失败: %s' % e)
 
 
+def notify_feishu(title, content):
+    """飞书自定义机器人，纯文本；返回是否发送。Webhook 绝不打印。"""
+    url = FEISHU_WEBHOOK
+    if not url.startswith('https://open.feishu.cn/open-apis/bot/v2/hook/'):
+        return False
+    repo = (os.getenv('GITHUB_REPOSITORY') or '').strip()
+    source = "来源：GitHub Actions 定时任务"
+    if repo:
+        source += "  https://github.com/%s.git" % repo
+    now = bj()
+    head = title or "TRAE 的定时任务通知（每日自动领 TRAE 积分）"
+    body = "%s\n%s\n\n%s\n%s" % (now, head, content, source)
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"msg_type": "text", "content": {"text": body}}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+        data = json.loads(raw) if raw else {}
+        ok = data.get("code") == 0 or data.get("StatusCode") == 0
+        print("%s [飞书] 推送%s" % ("✅" if ok else "❌", "成功" if ok else "失败：接口返回非成功状态"))
+        return ok
+    except Exception as e:
+        print("❌ [飞书] 推送失败：%s" % e.__class__.__name__)
+        return False
+
+
 def notify_telegram(title, text):
     """Telegram 机器人推送（纯文本）；未配置完整凭据则跳过。"""
     if not (TG_BOT_TOKEN and TG_CHAT_ID):
@@ -1398,6 +1429,7 @@ def notify_telegram(title, text):
 def push(title, text):
     notify(text, title)
     notify_pushplus(title, text)
+    notify_feishu(title, text)
     notify_telegram(title, text)
 
 
@@ -1610,7 +1642,7 @@ def main():
     fail_n = len(results) - ok_n - already_n - soft_n - dead_n
 
     log_box(['✅ 成功 %d  ☑️ 已签 %d  ⏳ 待重试 %d  ❌ 失败 %d' % (ok_n, already_n, soft_n, fail_n + dead_n),
-             '🕒 结束时间: %s' % bj()], '🏁 Trae SOLO 签到完成')
+             '🕒 结束时间: %s' % bj()], '🏁 TRAE SOLO 签到完成')
 
     out = ['🕒 时间：%s' % bj(),
            '✅ 成功 %d  ☑️ 已签 %d  ⏳ 待重试 %d  ❌ 失败 %d' % (ok_n, already_n, soft_n, fail_n + dead_n)]
@@ -1619,7 +1651,7 @@ def main():
     # 逐账号明细也打到终端：只看汇总框时「失败 1」看不出原因，排障必须先能看到它
     for r in results:
         print('%s [%s] %s：%s' % (r['icon'], r['status'], r['name'], r['detail']))
-    push('🤖 Trae SOLO 多账号签到', '\n'.join(out))
+    push('🤖 TRAE SOLO 多账号签到', '\n'.join(out))
 
 
 if __name__ == '__main__':

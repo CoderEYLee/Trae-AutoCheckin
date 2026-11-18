@@ -1,9 +1,8 @@
 name: Trae AutoCheckin Daily
 
 on:
-  # 定时签到留给 fork 后自行开启（取消下面两行注释即可）
-  # schedule:
-  #   - cron: '23 16 * * *'  # 北京时间 00:23
+  schedule:
+    - cron: '23 16 * * *'  # 北京时间 00:23
   workflow_dispatch:
 
 concurrency:
@@ -11,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  contents: write  # 提交 last_run.txt 需要写权限
 
 jobs:
   checkin:
@@ -83,6 +82,7 @@ jobs:
           PLUSPLUS_TOKEN: ${{ secrets.PLUSPLUS_TOKEN }}
           PLUSHPLUS_TOKEN: ${{ secrets.PLUSHPLUS_TOKEN }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: python trae_checkin.py
@@ -107,3 +107,27 @@ jobs:
         with:
           path: .trae-cache/state.enc
           key: trae-state-v1-${{ github.run_id }}
+
+      # 只提交时间记录
+      - name: Record run time and commit
+        if: ${{ always() }}
+        env:
+          RUN_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          now=$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S')
+          {
+            echo "time: ${now} Asia/Shanghai"
+            echo "event: ${{ github.event_name }}"
+            echo "status: ${RUN_STATUS}"
+            echo "run_id: ${{ github.run_id }}"
+          } > last_run.txt
+          git config user.name CoderEYLee
+          git config user.email lieryangios@126.com
+          git add last_run.txt
+          if git diff --cached --quiet; then
+            echo "last_run.txt 无变化，跳过提交"
+            exit 0
+          fi
+          git commit -m "[${now}] auto checkin trigger by ${{ github.event_name }}"
+          git push origin "HEAD:${{ github.ref_name }}"

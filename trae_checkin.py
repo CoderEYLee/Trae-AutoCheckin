@@ -4,7 +4,7 @@
 Trae AutoCheckin · Trae 每日自动签到（抗 9074 限流版）
 ────────────────────────────────────────────────────────────
 一个零依赖的 Trae 积分签到脚本：缓存 token、自动续期、多账号轮签、
-当日去重、限流熔断，签到结果推送到企业微信 / PushPlus。
+当日去重、限流熔断，签到结果推送到企业微信 / PushPlus / 飞书。
 
 ✨ 特性
   • 零依赖     仅用 Python 标准库，无需 pip 安装（解密桌面端凭据时才需 cryptography）
@@ -17,7 +17,7 @@ Trae AutoCheckin · Trae 每日自动签到（抗 9074 限流版）
   • 抗 9074    请求体带 req_source + 设备头，且 x-device-id 必须是客户端真实注册过的号
   • 失败让路   本轮没签成的交给下一轮 cron 补签，不硬轰、不拖其它账号下水
   • 积分余额   签到后用 entitlement 接口查真实余额，推送里直接给数字
-  • 微信推送   企业微信群机器人 / PushPlus，多账号结果一目了然
+  • 推送       企业微信群机器人 / PushPlus / 飞书自定义机器人，多账号结果一目了然
 
 🛡 抗 9074 限流要点
   • 强制直连，不走系统代理 / Clash —— 多账号共用一个出口 IP 最容易触发限流
@@ -64,6 +64,7 @@ Trae AutoCheckin · Trae 每日自动签到（抗 9074 限流版）
   TRAE_ACCOUNT_DIR         账号 JSON 所在目录（可选，用于回写轮换后的 refreshToken）
   QYWX_TOKEN               企业微信群机器人 Webhook key（可选，也兼容 WECHAT_WEBHOOK）
   PLUSPLUS_TOKEN           PushPlus token（可选；兼容 PLUSHPLUS_TOKEN / PUSHPLUS_TOKEN）
+  FEISHU_WEBHOOK           飞书自定义机器人 Webhook 完整地址（可选，也兼容 FEISHU_HOOK）
 
   TRAE_ACCOUNTS 每个账号对象支持的字段：
     accessToken / refreshToken  明文 token（可只给 refreshToken，脚本自动换取）
@@ -174,6 +175,7 @@ def _apply_trae_config():
     if isinstance(push, dict):
         put('QYWX_TOKEN', push.get('qywxToken'))
         put('PLUSPLUS_TOKEN', push.get('plusplusToken'))
+        put('FEISHU_WEBHOOK', push.get('feishuWebhook') or push.get('feishuHook'))
 
     # 调度
     sch = cfg.get('schedule') or {}
@@ -244,6 +246,7 @@ PUSHPLUS_URL = 'https://www.pushplus.plus/send'
 # 企业微信 / PushPlus 推送配置（留空则不推送）
 PLUSPLUS_TOKEN = (os.getenv('PLUSPLUS_TOKEN') or os.getenv('PLUSHPLUS_TOKEN') or os.getenv('PUSHPLUS_TOKEN') or '').strip()
 QYWX_TOKEN = os.getenv('QYWX_TOKEN') or os.getenv('WECHAT_WEBHOOK') or ''
+FEISHU_WEBHOOK = (os.getenv('FEISHU_WEBHOOK') or os.getenv('FEISHU_HOOK') or '').strip()
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEVICE_ID_FILE = os.path.join(HERE, '.trae_device_ids.json')
@@ -1362,9 +1365,38 @@ def notify_pushplus(title, content):
         print('❌ [PushPlus] 推送失败: %s' % e)
 
 
+def notify_feishu(title, content):
+    """飞书自定义机器人，纯文本；返回是否发送。Webhook 绝不打印。"""
+    url = FEISHU_WEBHOOK
+    if not url.startswith('https://open.feishu.cn/open-apis/bot/v2/hook/'):
+        return False
+    repo = (os.getenv('GITHUB_REPOSITORY') or '').strip()
+    source = "来源：GitHub Actions 定时任务"
+    if repo:
+        source += "  https://github.com/%s.git" % repo
+    now = bj()
+    head = title or "Trae 的定时任务通知（每日自动领 Trae 积分）"
+    body = "%s\n%s\n\n%s\n%s" % (now, head, content, source)
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"msg_type": "text", "content": {"text": body}}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        raw = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
+        data = json.loads(raw) if raw else {}
+        ok = data.get("code") == 0 or data.get("StatusCode") == 0
+        print("%s [飞书] 推送%s" % ("✅" if ok else "❌", "成功" if ok else "失败：接口返回非成功状态"))
+        return ok
+    except Exception as e:
+        print("❌ [飞书] 推送失败：%s" % e.__class__.__name__)
+        return False
+
+
 def push(title, text):
     notify(text, title)
     notify_pushplus(title, text)
+    notify_feishu(title, text)
 
 
 # ══════════════════ 单个账号处理 ══════════════════

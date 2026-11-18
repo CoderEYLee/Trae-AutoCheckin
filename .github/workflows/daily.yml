@@ -82,6 +82,7 @@ jobs:
           PLUSPLUS_TOKEN: ${{ secrets.PLUSPLUS_TOKEN }}
           PLUSHPLUS_TOKEN: ${{ secrets.PLUSHPLUS_TOKEN }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python trae_checkin.py
 
       - name: Encrypt state

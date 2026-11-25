@@ -1,4 +1,4 @@
-time: 2026-11-25 08:10:57 Asia/Shanghai
-event: workflow_dispatch
+time: 2026-11-25 08:54:18 Asia/Shanghai
+event: schedule
 status: success
-run_id: 45515971483
+run_id: 45521676899
